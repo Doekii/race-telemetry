@@ -1,44 +1,42 @@
-// The clean shape our UI components expect
 export interface TelemetryPoint {
-    time: number;
-    distance: number;
-    speed: number;
-    rpm: number;
-    throttle: number;
-    brake: number;
-    gear: number;
-    // New GPS fields
-    lat: number;
-    long: number;
+  time: number;
+  distance: number;
+  speed: number;
+  rpm: number;
+  throttle: number;
+  brake: number;
+  gear: number;
+  lat: number;
+  long: number;
+  trackEdge: number; // New field
 }
 
 export interface LapData {
-    lapId: string;
-    driver: string;
-    car: string;
-    lapTime: number;
-    telemetry: TelemetryPoint[];
+  lapId: string;
+  driver: string;
+  car: string;
+  lapTime: number; 
+  telemetry: TelemetryPoint[];
 }
 
 export interface SessionListResponse {
-    files: string[];
+  files: string[];
 }
 
 export interface LapItem {
-    lap_number: number;
+  lap_number: number;
 }
 
-// The raw shape from the backend
 export interface RawTelemetryPoint {
-    "Time": number;
-    "ts": number;
-    "Lap Dist": number;
-    "Ground Speed": number;
-    "Throttle Pos": number;
-    "Brake Pos": number;
-    "Gear": number | null;
-    "Engine RPM": number;
-
-    "GPS Latitude": number;
-    "GPS Longitude": number;
+  "Time": number;
+  "ts": number;
+  "Lap Dist": number;
+  "Ground Speed": number;
+  "Throttle Pos": number;
+  "Brake Pos": number;
+  "Gear": number | null;
+  "Engine RPM": number;
+  "GPS Latitude": number;
+  "GPS Longitude": number;
+  "Track Edge"?: number; // Optional in case older files miss it
 }
