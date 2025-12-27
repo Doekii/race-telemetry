@@ -4,6 +4,22 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { TelemetryPoint } from '@/types/api';
 
+type ProjectedPoint = {
+  x: number;
+  y: number;
+  data: TelemetryPoint;
+  offsetMeters: number;
+};
+
+interface Geometry {
+  trackPath: string;
+  linePath: string;
+  centerPath: string;
+  projectedPoints: ProjectedPoint[];
+  startPoint: ProjectedPoint | null;
+  pixelsPerMeter: number;
+}
+
 interface TrackMapProps {
   data: TelemetryPoint[];
   color?: string; 
@@ -32,7 +48,9 @@ export default function TrackMap({
   useEffect(() => {
     if (!containerRef.current) return;
     const resizeObserver = new ResizeObserver((entries) => {
-      setWidth(entries[0].contentRect.width);
+      // Use clientWidth/Height as fallback or contentRect
+      const w = entries[0].contentRect.width;
+      if (w > 0) setWidth(w);
     });
     resizeObserver.observe(containerRef.current);
     return () => resizeObserver.disconnect();
@@ -67,7 +85,7 @@ export default function TrackMap({
   // ---------------------------------------------------------
   // CORE GEOMETRY CALCULATION
   // ---------------------------------------------------------
-  const geometry = useMemo(() => {
+  const geometry = useMemo<Geometry>(() => {
     if (width === 0 || !downsampledData || downsampledData.length === 0) {
       return { trackPath: '', linePath: '', centerPath: '', projectedPoints: [], startPoint: null, pixelsPerMeter: 0 };
     }
@@ -78,15 +96,26 @@ export default function TrackMap({
     const longExtent = d3.extent(downsampledData, d => d.long) as [number, number];
     const latExtent = d3.extent(downsampledData, d => d.lat) as [number, number];
     
-    if (!longExtent[0] || !latExtent[0]) return { trackPath: '', linePath: '', centerPath: '', projectedPoints: [], startPoint: null, pixelsPerMeter: 0 };
+    // FIX: Check for undefined explicitly, as 0 is a valid coordinate
+    if (longExtent[0] === undefined || latExtent[0] === undefined) {
+       return { trackPath: '', linePath: '', centerPath: '', projectedPoints: [], startPoint: null, pixelsPerMeter: 0 };
+    }
 
-    const longRange = longExtent[1] - longExtent[0];
-    const latRange = latExtent[1] - latExtent[0];
+    // Handle degenerate case (single point or no range)
+    let longRange = longExtent[1] - longExtent[0];
+    let latRange = latExtent[1] - latExtent[0];
+    
+    // Prevent division by zero if points are identical
+    if (longRange === 0) longRange = 0.0001;
+    if (latRange === 0) latRange = 0.0001;
+
     const avgLatRad = (latExtent[0] + latExtent[1]) / 2 * (Math.PI / 180);
     const aspectCorrection = Math.cos(avgLatRad);
     
     const dataAspectRatio = (longRange * aspectCorrection) / latRange;
-    const containerAspectRatio = (width - padding * 2) / (height - padding * 2);
+    // Prevent division by zero if height is small
+    const safeHeight = Math.max(height - padding * 2, 1);
+    const containerAspectRatio = (width - padding * 2) / safeHeight;
 
     let xScale, yScale;
     if (dataAspectRatio > containerAspectRatio) {
@@ -109,9 +138,9 @@ export default function TrackMap({
       offsetMeters: d.trackEdge || 0
     }));
 
-    const points = [];
+    const points: ProjectedPoint[] = [];
     if (rawPoints.length > 0) {
-      points.push(rawPoints[0]);
+      points.push(rawPoints[0] as ProjectedPoint);
       for (let i = 1; i < rawPoints.length; i++) {
         const dx = rawPoints[i].x - points[points.length - 1].x;
         const dy = rawPoints[i].y - points[points.length - 1].y;
@@ -197,9 +226,10 @@ export default function TrackMap({
   }, [width, height, downsampledData]);
 
   // 4. Active Marker Logic
-  const activeMarker = useMemo(() => {
+  const activeMarker = useMemo<ProjectedPoint | null>(() => {
     if (hoverDistance === null || hoverDistance === undefined || !geometry.projectedPoints.length) return null;
-    return d3.least(geometry.projectedPoints, p => Math.abs(p.data.distance - hoverDistance));
+    const found = d3.least(geometry.projectedPoints, p => Math.abs(p.data.distance - hoverDistance));
+    return found ?? null;
   }, [hoverDistance, geometry.projectedPoints]);
 
   // 5. Mouse Interaction
@@ -231,7 +261,7 @@ export default function TrackMap({
   const getMarkerLine = () => {
     if (!activeMarker || !geometry.projectedPoints.length) return null;
 
-    const index = geometry.projectedPoints.indexOf(activeMarker);
+    const index = geometry.projectedPoints.indexOf(activeMarker as ProjectedPoint);
     if (index === -1) return null;
 
     const p = geometry.projectedPoints[index];
@@ -269,7 +299,7 @@ export default function TrackMap({
 
   return (
     <div ref={containerRef} className={`w-full relative ${className}`} style={{ height }} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
-      {width > 0 && geometry.trackPath && (
+      {width > 0 && geometry.trackPath ? (
         <svg ref={svgRef} width={width} height={height} className="overflow-hidden cursor-crosshair touch-none">
           <g transform={zoomTransform ? zoomTransform.toString() : ""}>
             {/* Track Ribbon */}
@@ -324,6 +354,10 @@ export default function TrackMap({
             )}
           </g>
         </svg>
+      ) : (
+        <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">
+          {!data || data.length === 0 ? "No Track Data" : "Calculating Geometry..."}
+        </div>
       )}
       <div className="absolute bottom-2 right-2 text-[10px] text-gray-500 bg-black/50 px-2 py-1 rounded pointer-events-none select-none">
         Scroll to Zoom • Drag to Pan

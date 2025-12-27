@@ -6,7 +6,8 @@ import SessionSelector from '@/components/SessionSelector';
 import LapSelector from '@/components/LapSelector';
 import D3LineChart from '@/components/D3LineChart';
 import TrackMap from '@/components/TrackMap';
-import { Settings2 } from 'lucide-react'; 
+import { Settings2, ArrowRightLeft } from 'lucide-react'; 
+import Link from 'next/link';
 
 export default function DashboardPage() {
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
@@ -59,6 +60,18 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-col md:flex-row gap-6 w-full xl:w-auto items-end md:items-center">
+            
+            {/* Navigation Button */}
+            <Link 
+              href="/compare"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg border border-gray-700 transition-colors text-xs font-bold uppercase tracking-wider"
+            >
+              <ArrowRightLeft className="w-4 h-4" />
+              Compare Laps
+            </Link>
+
+            <div className="h-8 w-px bg-gray-800 hidden md:block" />
+
             <div className="flex flex-col items-end mr-4">
               <label className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
                 <Settings2 className="w-3 h-3" />
@@ -233,7 +246,7 @@ export default function DashboardPage() {
                 />
               </div>
 
-              {/* NEW: Track Edge Chart */}
+              {/* Track Edge Chart */}
               <div className="bg-race-panel border border-gray-800 rounded-lg p-4">
                 <D3LineChart 
                   title={activePoint 
