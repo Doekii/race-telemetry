@@ -6,23 +6,23 @@ import SessionSelector from '@/components/SessionSelector';
 import LapSelector from '@/components/LapSelector';
 import D3LineChart from '@/components/D3LineChart';
 import TrackMap from '@/components/TrackMap';
-import { Settings2, ArrowRightLeft } from 'lucide-react'; 
+import { Settings2, ArrowRightLeft } from 'lucide-react';
 import Link from 'next/link';
 
 export default function DashboardPage() {
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [selectedLap, setSelectedLap] = useState<number | null>(null);
   const [hoveredDistance, setHoveredDistance] = useState<number | null>(null);
-  const [resolution, setResolution] = useState<number>(4000); 
-  
+  const [resolution, setResolution] = useState<number>(4000);
+
   const { data: sessionData, isLoading: sessionsLoading, isError: sessionsError } = useSessions();
   const { data: lapData, isLoading: lapsLoading } = useLaps(selectedSession);
-  
-  const { 
-    data: telemetryData, 
+
+  const {
+    data: telemetryData,
     isLoading: telemetryLoading,
     isError: telemetryError,
-    error: telemetryErrorObj 
+    error: telemetryErrorObj
   } = useLapTelemetry(selectedSession, selectedLap);
 
   useEffect(() => {
@@ -38,16 +38,7 @@ export default function DashboardPage() {
 
   const activePoint = useMemo(() => {
     if (!telemetryData || telemetryData.length === 0 || hoveredDistance === null) return null;
-    let closest = telemetryData[0];
-    let minDiff = Math.abs(closest.distance - hoveredDistance);
-    for (let i = 1; i < telemetryData.length; i++) {
-      const diff = Math.abs(telemetryData[i].distance - hoveredDistance);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closest = telemetryData[i];
-      }
-    }
-    return closest;
+    return telemetryData.find(p => Math.abs(p.distance - hoveredDistance) < 5);
   }, [telemetryData, hoveredDistance]);
 
   return (
@@ -60,9 +51,8 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-col md:flex-row gap-6 w-full xl:w-auto items-end md:items-center">
-            
-            {/* Navigation Button */}
-            <Link 
+
+            <Link
               href="/compare"
               className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg border border-gray-700 transition-colors text-xs font-bold uppercase tracking-wider"
             >
@@ -78,7 +68,6 @@ export default function DashboardPage() {
                 Resolution:
               </label>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-600 font-mono">100</span>
                 <input
                   type="range"
                   min={100}
@@ -89,26 +78,12 @@ export default function DashboardPage() {
                   disabled={!telemetryData}
                   className="w-32 md:w-48 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-telemetry-blue disabled:opacity-50"
                 />
-                
-                <input
-                  type="number"
-                  min={100}
-                  max={telemetryData?.length || 20000}
-                  value={resolution}
-                  onChange={(e) => {
-                    const val = Number(e.target.value);
-                    if (!isNaN(val)) setResolution(val);
-                  }}
-                  disabled={!telemetryData}
-                  className="w-20 bg-gray-800 text-white text-sm font-mono py-1 px-2 rounded border border-gray-700 focus:border-telemetry-blue focus:outline-none text-right disabled:opacity-50"
-                />
-                
-                <span className="text-xs text-gray-600 font-mono">pts</span>
+                <span className="text-xs text-gray-600 font-mono">{resolution} pts</span>
               </div>
             </div>
 
             <div className="flex gap-4 w-full md:w-auto">
-              <SessionSelector 
+              <SessionSelector
                 sessions={sessionData?.files || []}
                 isLoading={sessionsLoading}
                 isError={sessionsError}
@@ -116,7 +91,7 @@ export default function DashboardPage() {
                 onSelect={setSelectedSession}
               />
 
-              <LapSelector 
+              <LapSelector
                 laps={lapData || []}
                 selected={selectedLap}
                 onSelect={setSelectedLap}
@@ -129,141 +104,98 @@ export default function DashboardPage() {
       </header>
 
       <div className="space-y-6">
-        
+
         {telemetryError && (
           <div className="bg-red-900/20 border border-red-800 rounded-xl p-6 text-center text-red-200">
-            <p className="font-bold">Error Loading Telemetry</p>
-            <p className="text-sm mt-2 opacity-80">
-              {(telemetryErrorObj as Error)?.message || "Unknown error occurred"}
-            </p>
+            <p>Error: {(telemetryErrorObj as Error)?.message}</p>
           </div>
         )}
 
         {(!selectedSession || (!selectedLap && selectedLap !== 0)) && (
           <div className="bg-race-panel border border-gray-800 rounded-xl min-h-[400px] flex items-center justify-center">
-            <div className="text-center text-gray-500">
-              <p className="text-lg">
-                {!selectedSession ? "No session selected" : "Session Loaded"}
-              </p>
-              <p className="text-sm">
-                {!selectedSession ? "Select a race file to view available laps." : "Please select a lap to analyze telemetry."}
-              </p>
-            </div>
+            <div className="text-gray-500">Select Session & Lap</div>
           </div>
-        )}
-
-        {selectedSession && (selectedLap || selectedLap === 0) && telemetryLoading && (
-           <div className="bg-race-panel border border-gray-800 rounded-xl min-h-[400px] flex items-center justify-center">
-             <div className="flex items-center text-telemetry-blue">
-               <div className="animate-spin mr-3 h-5 w-5 border-2 border-current border-t-transparent rounded-full" />
-               Loading Trace Data...
-             </div>
-           </div>
         )}
 
         {telemetryData && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* Left Column: Telemetry Charts */}
+
+            {/* Left Column: Charts */}
             <div className="lg:col-span-2 space-y-6">
-              
+
               <div className="bg-race-panel p-6 rounded-lg border border-gray-800">
-                <D3LineChart 
-                  title={activePoint 
-                    ? `Speed: ${activePoint.speed.toFixed(0)} km/h` 
-                    : "Speed Trace (km/h)"}
-                  data={telemetryData} 
-                  dataKey="speed" 
-                  color="#3b82f6" 
-                  height={300} 
+                <D3LineChart
+                  title="Speed Trace (km/h)"
+                  data={telemetryData}
+                  dataKey="speed"
+                  color="#3b82f6"
+                  height={300}
                   hoverDistance={hoveredDistance}
-                  onHover={setHoveredDistance} 
+                  onHover={setHoveredDistance}
                   targetPoints={resolution}
                 />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-race-panel p-6 rounded-lg border border-gray-800">
-                  <D3LineChart 
-                    title={activePoint 
-                      ? `RPM: ${activePoint.rpm.toFixed(0)}` 
-                      : "Engine RPM"}
-                    data={telemetryData} 
-                    dataKey="rpm" 
-                    color="#ef4444" 
+                  <D3LineChart
+                    title="Engine RPM"
+                    data={telemetryData}
+                    dataKey="rpm"
+                    color="#ef4444"
                     height={200}
                     hoverDistance={hoveredDistance}
-                    onHover={setHoveredDistance} 
+                    onHover={setHoveredDistance}
                     targetPoints={resolution}
                   />
                 </div>
                 <div className="bg-race-panel p-6 rounded-lg border border-gray-800">
-                  <D3LineChart 
-                    title={activePoint 
-                      ? `Throttle: ${activePoint.throttle.toFixed(0)}%` 
-                      : "Throttle (%)"}
-                    data={telemetryData} 
-                    dataKey="throttle" 
-                    color="#22c55e" 
-                    height={200} 
+                  <D3LineChart
+                    title="Throttle (%)"
+                    data={telemetryData}
+                    dataKey="throttle"
+                    color="#22c55e"
+                    height={200}
                     hoverDistance={hoveredDistance}
-                    onHover={setHoveredDistance} 
+                    onHover={setHoveredDistance}
                     targetPoints={resolution}
                   />
                 </div>
               </div>
             </div>
 
-            {/* Right Column: Info & Map & Track Edge */}
+            {/* Right Column: Info & Map */}
             <div className="space-y-6">
-              
-              <div className="bg-race-panel border border-gray-800 rounded-lg p-6 flex flex-col justify-center space-y-6">
-                 <div>
-                    <div className="text-xs uppercase text-gray-500 font-bold mb-1">Session</div>
-                    <div className="text-green-400 font-mono text-sm break-all">{selectedSession}</div>
-                 </div>
-                 <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-xs uppercase text-gray-500 font-bold mb-1">Lap</div>
-                      <div className="text-3xl text-white font-mono font-bold">#{selectedLap}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs uppercase text-gray-500 font-bold mb-1">Points</div>
-                      <div className="text-3xl text-gray-300 font-mono font-bold">{telemetryData.length}</div>
-                    </div>
-                 </div>
+              <div className="bg-race-panel border border-gray-800 rounded-lg p-6">
+                <div className="text-xs uppercase text-gray-500 font-bold mb-1">Session</div>
+                <div className="text-green-400 font-mono text-sm break-all mb-4">{selectedSession}</div>
+                <div className="text-3xl text-white font-mono font-bold">Lap #{selectedLap}</div>
               </div>
 
-              <div className="bg-race-panel border border-gray-800 rounded-lg p-4 relative min-h-[400px] flex items-center justify-center">
-                <div className="absolute top-4 left-4 text-xs uppercase text-gray-400 font-bold z-10">GPS Track Map</div>
-                <TrackMap 
-                  data={telemetryData} 
-                  color="#ffffff" 
-                  height={400}
-                  hoverDistance={hoveredDistance} 
+              <div className="bg-race-panel border border-gray-800 rounded-lg p-4 relative min-h-[300px] flex items-center justify-center">
+                <TrackMap
+                  data={telemetryData}
+                  color="#ffffff"
+                  height={300}
+                  hoverDistance={hoveredDistance}
                   onHover={(point) => setHoveredDistance(point ? point.distance : null)}
                   targetPoints={resolution}
                 />
               </div>
 
-              {/* Track Edge Chart */}
               <div className="bg-race-panel border border-gray-800 rounded-lg p-4">
-                <D3LineChart 
-                  title={activePoint 
-                    ? `Track Edge: ${activePoint.trackEdge.toFixed(2)}m` 
-                    : "Track Edge (m)"}
-                  data={telemetryData} 
-                  dataKey="trackEdge" 
-                  color="#f59e0b" // Amber color
-                  height={200}
-                  hoverDistance={hoveredDistance} 
+                <D3LineChart
+                  title="Track Edge (m)"
+                  data={telemetryData}
+                  dataKey="trackEdge"
+                  color="#f59e0b"
+                  height={150}
+                  hoverDistance={hoveredDistance}
                   onHover={setHoveredDistance}
                   targetPoints={resolution}
                 />
               </div>
-
             </div>
-
           </div>
         )}
       </div>

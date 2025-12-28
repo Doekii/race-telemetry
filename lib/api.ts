@@ -19,6 +19,7 @@ export const getLaps = async (filename: string): Promise<LapItem[]> => {
 };
 
 export const getLapTelemetry = async (filename: string, lapNumber: number): Promise<TelemetryPoint[]> => {
+  // ... existing implementation ...
   const channels = [
     "Ground Speed",
     "Throttle Pos",
@@ -28,7 +29,9 @@ export const getLapTelemetry = async (filename: string, lapNumber: number): Prom
     "GPS Latitude",
     "GPS Longitude",
     "Lap Dist",
-    "Track Edge"
+    "Track Edge",
+    "G Force Lat",
+    "G Force Long"
   ].join(",");
 
   const response = await apiClient.get<any>(
@@ -38,7 +41,6 @@ export const getLapTelemetry = async (filename: string, lapNumber: number): Prom
 
   let rawData = response.data;
 
-  // Handle potential string response for NaN/Infinity safety
   if (typeof rawData === 'string') {
     try {
       rawData = JSON.parse(rawData);
@@ -63,19 +65,28 @@ export const getLapTelemetry = async (filename: string, lapNumber: number): Prom
       gear: point.Gear ?? 0,
       lat: point["GPS Latitude"] || 0,
       long: point["GPS Longitude"] || 0,
-      trackEdge: Number(trackEdgeVal)
+      trackEdge: Number(trackEdgeVal),
+      gLat: point["G Force Lat"] || 0,
+      gLong: point["G Force Long"] || 0
     };
   });
 };
-
-// --- NEW: Comparison Function ---
 
 export const getLapComparison = async (
   file1: string,
   lap1: number,
   file2: string,
   lap2: number,
-  channels: string[] = ['Ground Speed', 'Throttle Pos', 'Brake Pos', 'Engine RPM', 'Gear']
+  channels: string[] = [
+    'Ground Speed',
+    'Throttle Pos',
+    'Brake Pos',
+    'Engine RPM',
+    'Gear',
+    'G Force Lat',
+    'G Force Long',
+    'Tyres Wear'
+  ]
 ): Promise<DeltaPoint[]> => {
   const params = {
     file1,
@@ -86,7 +97,7 @@ export const getLapComparison = async (
   };
 
   const response = await apiClient.get<any>('/laps/compare', { params });
-  
+
   let rawData = response.data;
 
   if (typeof rawData === 'string') {
@@ -98,20 +109,26 @@ export const getLapComparison = async (
     }
   }
 
-  // Map backend response to DeltaPoint interface
   return rawData.map((d: any) => {
     const point: DeltaPoint = {
       dist: d['Lap Dist'],
       time_delta: d['Time_Delta']
     };
-    
-    // Copy dynamic channel keys (e.g., "Ground Speed_Ref")
+
+    // Improved Mapping: Don't destroy arrays
     Object.keys(d).forEach(key => {
-        if (key !== 'Lap Dist' && key !== 'Time_Delta') {
-            point[key] = d[key];
+      if (key !== 'Lap Dist' && key !== 'Time_Delta') {
+        const val = d[key];
+        // If array or object, keep it. If primitive, cast to number safely.
+        if (typeof val === 'object' && val !== null) {
+          point[key] = val; // Keep array/object structure (e.g. [99, 99, 98, 98])
+        } else {
+          const num = Number(val);
+          point[key] = isNaN(num) ? 0 : num;
         }
+      }
     });
-    
+
     return point;
   });
 };

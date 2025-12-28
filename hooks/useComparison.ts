@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { getLapComparison, getLapTelemetry } from '@/lib/api'; // Updated imports
+import { getLapComparison, getLapTelemetry } from '@/lib/api';
 import { TelemetryPoint, DeltaPoint } from '@/types/api';
 
 interface UseComparisonProps {
@@ -10,9 +10,8 @@ interface UseComparisonProps {
 }
 
 export function useComparison({ refSession, refLap, compSession, compLap }: UseComparisonProps) {
-  
+
   // 1. Fetch Reference Lap Telemetry (for Map Geometry)
-  // Uses existing getLapTelemetry which returns TelemetryPoint[]
   const { data: refTelemetry, isLoading: isLoadingRef } = useQuery<TelemetryPoint[]>({
     queryKey: ['telemetry', refSession, refLap],
     queryFn: () => getLapTelemetry(refSession!, refLap!),
@@ -21,9 +20,17 @@ export function useComparison({ refSession, refLap, compSession, compLap }: UseC
   });
 
   // 2. Fetch Comparison Data (Delta & Channels)
-  // Uses new getLapComparison which returns DeltaPoint[]
-  const channelsToCompare = ['Ground Speed', 'Throttle Pos', 'Brake Pos', 'Engine RPM', 'Gear'];
-  
+  const channelsToCompare = [
+    'Ground Speed',
+    'Throttle Pos',
+    'Brake Pos',
+    'Engine RPM',
+    'Gear',
+    'G Force Lat',
+    'G Force Long',
+    'Tyres Wear' // This triggers fetching the 4-column table
+  ];
+
   const { data: comparisonData, isLoading: isLoadingComp } = useQuery<DeltaPoint[]>({
     queryKey: ['compare', refSession, refLap, compSession, compLap],
     queryFn: () => getLapComparison(refSession!, refLap!, compSession!, compLap!, channelsToCompare),

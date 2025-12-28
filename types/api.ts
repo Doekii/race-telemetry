@@ -2,22 +2,25 @@
 
 export interface TelemetryPoint {
   time: number;
-  distance: number; // Existing uses 'distance'
+  distance: number;
   speed: number;
   rpm: number;
   throttle: number;
   brake: number;
   gear: number;
   lat: number;
-  long: number;    // Existing uses 'long'
+  long: number;
   trackEdge: number;
+  // New fields for advanced analysis
+  gLat: number;
+  gLong: number;
 }
 
 export interface LapData {
   lapId: string;
   driver: string;
   car: string;
-  lapTime: number; 
+  lapTime: number;
   telemetry: TelemetryPoint[];
 }
 
@@ -49,9 +52,9 @@ export interface RawTelemetryPoint {
 // --- NEW TYPES FOR COMPARISON FEATURE ---
 
 export interface DeltaPoint {
-  dist: number;       // Normalized Distance for X-Axis
-  time_delta: number; // The main comparison metric
-  [key: string]: number; // Dynamic keys: 'Speed_Ref', 'Speed_Comp', etc.
+  dist: number;
+  time_delta: number;
+  [key: string]: number | number[] | any; // Allow arrays/objects
 }
 
 export interface DeltaResponse {
