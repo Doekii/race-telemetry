@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useMemo, useState, useLayoutEffect } from 'react';
+import React, { useEffect, useRef, useMemo, useState, useLayoutEffect } from 'react';
 import * as d3 from 'd3';
 import { DeltaPoint } from '@/types/api';
 import { ZoomSynchronizer } from '@/utils/zoom';
@@ -40,13 +40,11 @@ export default function DeltaLineChart({
 }: DeltaLineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const pathGroupRef = useRef<SVGGElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const xAxisRef = useRef<SVGGElement>(null);
   const yAxisRef = useRef<SVGGElement>(null);
 
   const [width, setWidth] = useState(0);
-  // Deterministic ID for gradient to prevent hydration mismatch
-  const gradientId = useMemo(() => `grad-${label.replace(/[^a-zA-Z0-9]/g, '-')}`, [label]);
 
   const marginTop = 20;
   const marginRight = 30;
@@ -62,38 +60,29 @@ export default function DeltaLineChart({
     return () => resizeObserver.disconnect();
   }, []);
 
-  const downsampledData = useMemo(() => {
-    if (targetPoints <= 0) return [];
-    if (!data || data.length <= targetPoints) return data;
-    const step = Math.ceil(data.length / targetPoints);
-    return data.filter((_, i) => i % step === 0);
-  }, [data, targetPoints]);
-
   const getDist = (d: any): number => {
-    if (d.dist !== undefined) return d.dist;
-    if (d.distance !== undefined) return d.distance;
-    if (d["Lap Dist"] !== undefined) return d["Lap Dist"];
-    return 0;
+    const val = d.dist ?? d.distance ?? d["Lap Dist"];
+    if (val === null || val === undefined || isNaN(Number(val))) return 0;
+    return Number(val);
   };
 
-  const { pathRef, pathComp, xBase, y, zeroOffset } = useMemo(() => {
+  // 1. Base Scales
+  const { xBase, y, zeroOffset } = useMemo(() => {
     if (width === 0 || !data || data.length === 0) {
-      return { pathRef: '', pathComp: '', xBase: null, y: null, zeroOffset: 0.5 };
+      return { xBase: null, y: null, zeroOffset: 0.5 };
     }
 
     const xExtent = globalXDomain || d3.extent(data, getDist) as [number, number];
-    const x = d3.scaleLinear()
-      .domain(xExtent)
-      .range([marginLeft, width - marginRight]);
+    const x = d3.scaleLinear().domain(xExtent).range([marginLeft, width - marginRight]);
 
-    const minRef = d3.min(data, d => d[dataKeyRef]) ?? 0;
-    const maxRef = d3.max(data, d => d[dataKeyRef]) ?? 0;
+    const minRef = d3.min(data, (d: any) => { const v = d[dataKeyRef]; return (v !== null && !isNaN(Number(v))) ? Number(v) : undefined; }) ?? 0;
+    const maxRef = d3.max(data, (d: any) => { const v = d[dataKeyRef]; return (v !== null && !isNaN(Number(v))) ? Number(v) : undefined; }) ?? 0;
     let min = minRef;
     let max = maxRef;
 
     if (dataKeyComp) {
-      const minComp = d3.min(data, d => d[dataKeyComp]);
-      const maxComp = d3.max(data, d => d[dataKeyComp]);
+      const minComp = d3.min(data, (d: any) => { const v = d[dataKeyComp]; return (v !== null && !isNaN(Number(v))) ? Number(v) : undefined; });
+      const maxComp = d3.max(data, (d: any) => { const v = d[dataKeyComp]; return (v !== null && !isNaN(Number(v))) ? Number(v) : undefined; });
       if (minComp !== undefined && maxComp !== undefined) {
         min = Math.min(min, minComp);
         max = Math.max(max, maxComp);
@@ -111,77 +100,135 @@ export default function DeltaLineChart({
     const padding = (max - min) * 0.05;
     if (min === max) { min -= 1; max += 1; }
 
-    const y = d3.scaleLinear()
-      .domain([min - padding, max + padding])
-      .range([height - marginBottom, marginTop]);
-
-    const zeroY = y(0);
+    const yScale = d3.scaleLinear().domain([min - padding, max + padding]).range([height - marginBottom, marginTop]);
+    const zeroY = yScale(0);
     const zeroOffset = Math.max(0, Math.min(1, zeroY / height));
 
-    const lineGenerator = d3.line<DeltaPoint>()
-      .defined(d => !isNaN(Number(d[dataKeyRef])))
-      .x((d) => x(getDist(d)))
-      .y((d) => y(d[dataKeyRef]))
-      .curve(d3.curveMonotoneX);
+    return { xBase: x, y: yScale, zeroOffset };
+  }, [width, height, data, dataKeyRef, dataKeyComp, isDelta, globalXDomain, marginLeft, marginRight, marginTop, marginBottom]);
 
-    const pathR = lineGenerator(downsampledData);
-    let pathC = '';
-
-    if (dataKeyComp) {
-      const lineGeneratorComp = d3.line<DeltaPoint>()
-        .defined(d => !isNaN(Number(d[dataKeyComp!])))
-        .x((d) => x(getDist(d)))
-        .y((d) => y(d[dataKeyComp!]))
-        .curve(d3.curveMonotoneX);
-      pathC = lineGeneratorComp(downsampledData) || '';
-    }
-
-    return { pathRef: pathR || '', pathComp: pathC, xBase: x, y, zeroOffset };
-  }, [width, height, data, downsampledData, dataKeyRef, dataKeyComp, isDelta, globalXDomain]);
-
-  const { xBaseLocalized, pathRefLoc, pathCompLoc } = useMemo(() => {
-    if (!xBase || !pathRef) return { xBaseLocalized: null, pathRefLoc: '', pathCompLoc: '' };
-
+  // 2. Localized Scales for Zoom (0..Width)
+  const xBaseLocalized = useMemo(() => {
+    if (!xBase) return null;
     const plotWidth = width - marginLeft - marginRight;
-    const xLoc = d3.scaleLinear().domain(xBase.domain()).range([0, plotWidth]);
+    return d3.scaleLinear().domain(xBase.domain()).range([0, plotWidth]);
+  }, [xBase, width, marginLeft, marginRight]);
 
-    const lineGen = d3.line<DeltaPoint>()
-      .defined(d => !isNaN(Number(d[dataKeyRef])))
-      .x(d => xLoc(getDist(d)))
-      .y(d => y!(d[dataKeyRef]))
-      .curve(d3.curveMonotoneX);
-
-    const pR = lineGen(downsampledData) || '';
-    let pC = '';
-    if (dataKeyComp && y) {
-      const lineGenC = d3.line<DeltaPoint>()
-        .defined(d => !isNaN(Number(d[dataKeyComp!])))
-        .x(d => xLoc(getDist(d)))
-        .y(d => y(d[dataKeyComp!]))
-        .curve(d3.curveMonotoneX);
-      pC = lineGenC(downsampledData) || '';
-    }
-
-    return { xBaseLocalized: xLoc, pathRefLoc: pR, pathCompLoc: pC };
-  }, [xBase, y, downsampledData, dataKeyRef, dataKeyComp, width, marginLeft, marginRight]);
-
-
+  // 3. Drawing Logic
   useLayoutEffect(() => {
-    if (!zoomSync || !xBaseLocalized || !pathGroupRef.current) return;
+    if (!zoomSync || !xBaseLocalized || !y || !canvasRef.current || !svgRef.current || !xAxisRef.current || !yAxisRef.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
     const svg = d3.select(svgRef.current);
     const xAxisG = d3.select(xAxisRef.current);
     const yAxisG = d3.select(yAxisRef.current);
-    const pathGroup = d3.select(pathGroupRef.current);
 
+    // High DPI
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx.scale(dpr, dpr);
+
+    // Init Axes
     const xAxis = d3.axisBottom(xBaseLocalized).ticks(width / 80).tickSizeOuter(0).tickFormat(d => Math.round(Number(d)) + "m");
-    const yAxis = d3.axisLeft(y!).ticks(5).tickSizeOuter(0);
+    const yAxis = d3.axisLeft(y).ticks(5).tickSizeOuter(0);
 
     xAxisG.call(xAxis).selectAll("text").style("fill", "#9ca3af");
     xAxisG.selectAll("line").style("stroke", "#374151");
     yAxisG.call(yAxis).selectAll("text").style("fill", "#9ca3af");
     yAxisG.selectAll("line").style("stroke", "#374151");
     yAxisG.selectAll("path").style("display", "none");
+
+    const bisect = d3.bisector((d: DeltaPoint) => getDist(d)).left;
+
+    const drawer = (transform: d3.ZoomTransform) => {
+      ctx.clearRect(0, 0, width, height);
+
+      const newXScale = transform.rescaleX(xBaseLocalized);
+      const plotWidth = width - marginLeft - marginRight;
+      const plotHeight = height - marginBottom - marginTop;
+
+      // Culling & LOD
+      const [minDist, maxDist] = newXScale.domain();
+      let startIndex = bisect(data, minDist);
+      let endIndex = bisect(data, maxDist);
+      startIndex = Math.max(0, startIndex - 2);
+      endIndex = Math.min(data.length, endIndex + 2);
+
+      const visibleCount = endIndex - startIndex;
+      const stride = Math.ceil(visibleCount / 4000);
+
+      // Prepare Gradient if Delta
+      let strokeStyle: string | CanvasGradient = colorRef;
+      if (isDelta) {
+        const grad = ctx.createLinearGradient(0, 0, 0, height);
+        grad.addColorStop(0, colorRef);
+        grad.addColorStop(zeroOffset, colorRef);
+        grad.addColorStop(zeroOffset, colorComp);
+        grad.addColorStop(1, colorComp);
+        strokeStyle = grad;
+      }
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(marginLeft, marginTop, plotWidth, plotHeight);
+      ctx.clip();
+
+      const drawPath = (key: string, dash: boolean) => {
+        ctx.beginPath();
+        if (visibleCount > 0) {
+          const d0 = data[startIndex];
+          const v0 = Number(d0[key]);
+          if (!isNaN(v0)) {
+            ctx.moveTo(newXScale(getDist(d0)) + marginLeft, y(v0));
+          }
+
+          for (let i = startIndex + stride; i < endIndex; i += stride) {
+            const d = data[i];
+            const v = Number(d[key]);
+            if (!isNaN(v)) {
+              ctx.lineTo(newXScale(getDist(d)) + marginLeft, y(v));
+            }
+          }
+          if (stride > 1 && endIndex > startIndex) {
+            const dLast = data[endIndex - 1];
+            const vLast = Number(dLast[key]);
+            if (!isNaN(vLast)) {
+              ctx.lineTo(newXScale(getDist(dLast)) + marginLeft, y(vLast));
+            }
+          }
+        }
+
+        ctx.strokeStyle = dash ? colorComp : strokeStyle;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        if (dash) ctx.setLineDash([4, 2]);
+        ctx.stroke();
+        if (dash) ctx.setLineDash([]);
+      };
+
+      // Draw Lines
+      drawPath(dataKeyRef, false);
+      if (dataKeyComp) {
+        drawPath(dataKeyComp, true);
+      }
+
+      ctx.restore();
+
+      // Axes Update
+      xAxisG.call(xAxis.scale(newXScale)).selectAll("text").style("fill", "#9ca3af");
+      xAxisG.selectAll("line").style("stroke", "#374151");
+
+      const currentT = d3.zoomTransform(svg.node()!);
+      if (Math.abs(currentT.k - transform.k) > 0.001 || Math.abs(currentT.x - transform.x) > 1) {
+        svg.property("__zoom", transform);
+      }
+    };
 
     const plotWidth = width - marginLeft - marginRight;
     const zoomExt = d3.zoom<SVGSVGElement, unknown>()
@@ -199,7 +246,6 @@ export default function DeltaLineChart({
 
     const unsubscribe = zoomSync.subscribe((domain) => {
       let transform = d3.zoomIdentity;
-
       if (domain) {
         const [G0, G1] = xBaseLocalized.domain();
         const [d0, d1] = domain;
@@ -208,41 +254,28 @@ export default function DeltaLineChart({
         transform = d3.zoomIdentity.translate(tx, 0).scale(k);
       }
 
-      // Always Update Visualization (Important for Initiator Chart)
-      const newXScale = transform.rescaleX(xBaseLocalized);
-      xAxisG.call(xAxis.scale(newXScale)).selectAll("text").style("fill", "#9ca3af");
-      xAxisG.selectAll("line").style("stroke", "#374151");
-
-      pathGroup.attr("transform", `translate(${marginLeft + transform.x}, 0) scale(${transform.k}, 1)`);
-      pathGroup.selectAll(".cursor-dot").attr("transform", `scale(${1 / transform.k}, 1)`);
-
-      // Sync internal D3 state only if different to avoid loops
       const currentT = d3.zoomTransform(svg.node()!);
       if (Math.abs(currentT.k - transform.k) > 0.001 || Math.abs(currentT.x - transform.x) > 1) {
         svg.property("__zoom", transform);
       }
+      drawer(transform);
     });
 
-    return () => {
-      unsubscribe();
-      svg.on(".zoom", null);
-    };
-  }, [zoomSync, xBaseLocalized, width, marginLeft, marginRight, height, y]);
+    return () => { unsubscribe(); svg.on(".zoom", null); };
+
+  }, [zoomSync, xBaseLocalized, y, width, height, marginLeft, marginRight, data, isDelta, zeroOffset, colorRef, colorComp, dataKeyRef, dataKeyComp]);
 
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!xBaseLocalized || !onHover || !zoomSync) return;
+    if (!xBaseLocalized || !onHover || !zoomSync || !svgRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const mouseX = e.clientX - rect.left - marginLeft;
 
-    const domain = zoomSync.getDomain() || xBaseLocalized.domain();
-    const [d0, d1] = domain;
-    const [G0, G1] = xBaseLocalized.domain();
-    const k = (G1 - G0) / (d1 - d0);
-    const tx = -xBaseLocalized(d0) * k;
-    const t = d3.zoomIdentity.translate(tx, 0).scale(k);
+    const t = d3.zoomTransform(svgRef.current);
+    const newScale = t.rescaleX(xBaseLocalized);
+    const dist = newScale.invert(mouseX);
 
-    const dist = t.rescaleX(xBaseLocalized).invert(mouseX);
+    const [d0, d1] = newScale.domain();
     const clamped = Math.max(Math.min(dist, d1), d0);
     onHover(clamped);
   };
@@ -257,26 +290,30 @@ export default function DeltaLineChart({
     return Math.abs(getDist(d0) - hoverDistance) < Math.abs(getDist(d1) - hoverDistance) ? d0 : d1;
   }, [hoverDistance, data]);
 
-  const cursorX = activePoint && xBaseLocalized ? xBaseLocalized(getDist(activePoint)) : 0;
-
-  let currentK = 1;
-  if (zoomSync && zoomSync.getDomain() && xBaseLocalized) {
-    const [G0, G1] = xBaseLocalized.domain();
-    const [d0, d1] = zoomSync.getDomain()!;
-    currentK = (G1 - G0) / (d1 - d0);
-  }
-  const cursorTransform = `scale(${1 / currentK}, 1)`;
-
   const fmt = (val: any) => (val !== undefined && val !== null && !isNaN(val)) ? val.toFixed(2) : '--';
+
+  // Cursor Pos
+  const currentDomain = zoomSync?.getDomain() || xBaseLocalized?.domain();
+  let cursorX = 0;
+  let transformK = 1;
+  if (activePoint && xBaseLocalized && currentDomain) {
+    const [G0, G1] = xBaseLocalized.domain();
+    const [d0, d1] = currentDomain;
+    transformK = (G1 - G0) / (d1 - d0);
+    const tx = -xBaseLocalized(d0) * transformK;
+    cursorX = xBaseLocalized(getDist(activePoint)) * transformK + tx;
+  }
 
   return (
     <div className="w-full flex flex-col relative group">
+      {/* Header */}
       <div className="flex items-center justify-between mb-2 px-1 h-8">
         <div className="flex items-baseline gap-3">
           <h3 className="text-sm uppercase text-gray-400 font-semibold tracking-wider">
             {label} <span className="text-[10px] text-zinc-600 normal-case">[{unit}]</span>
           </h3>
         </div>
+
         <div className="flex items-center gap-4 font-mono text-sm">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colorRef }} />
@@ -307,56 +344,35 @@ export default function DeltaLineChart({
         onMouseMove={handleMouseMove}
         onMouseLeave={() => onHover(null)}
       >
-        <svg ref={svgRef} width={width} height={height} className="block">
-          <defs>
-            <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1="0" x2="0" y1="0" y2={height}>
-              <stop offset="0%" stopColor={colorRef} />
-              <stop offset={`${zeroOffset * 100}%`} stopColor={colorRef} />
-              <stop offset={`${zeroOffset * 100}%`} stopColor={colorComp} />
-              <stop offset="100%" stopColor={colorComp} />
-            </linearGradient>
-            <clipPath id={`clip-${gradientId}`}>
-              <rect x={marginLeft} y={0} width={Math.max(0, width - marginLeft - marginRight)} height={height} />
-            </clipPath>
-          </defs>
+        {/* CANVAS */}
+        <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none" />
 
-          <g ref={xAxisRef} transform={`translate(${marginLeft}, ${height - marginBottom})`} />
-          <g ref={yAxisRef} transform={`translate(${marginLeft}, 0)`} />
+        {/* SVG */}
+        <svg ref={svgRef} width={width} height={height} className="absolute top-0 left-0 block">
+          {width > 0 && xBaseLocalized && y && (
+            <>
+              <defs>
+                <clipPath id={`clip-${label}`}>
+                  <rect x={marginLeft} y={0} width={Math.max(0, width - marginLeft - marginRight)} height={height} />
+                </clipPath>
+              </defs>
 
-          <g clipPath={`url(#clip-${gradientId})`}>
-            <g ref={pathGroupRef} transform={`translate(${marginLeft},0)`}>
-              <path d={pathRefLoc} fill="none" stroke={isDelta ? `url(#${gradientId})` : colorRef} strokeWidth={2} vectorEffect="non-scaling-stroke" />
-              {pathCompLoc && <path d={pathCompLoc} fill="none" stroke={colorComp} strokeWidth={2} strokeDasharray="4 2" vectorEffect="non-scaling-stroke" />}
+              <g ref={xAxisRef} transform={`translate(${marginLeft}, ${height - marginBottom})`} />
+              <g ref={yAxisRef} transform={`translate(${marginLeft}, 0)`} />
 
               {activePoint && (
-                <g transform={`translate(${cursorX}, 0)`}>
-                  <line y1={marginTop} y2={height - marginBottom} stroke="white" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} vectorEffect="non-scaling-stroke" />
-                  <circle
-                    className="cursor-dot"
-                    cy={y!(activePoint[dataKeyRef])}
-                    r={4}
-                    fill="#1a1c23"
-                    stroke={isDelta ? (activePoint[dataKeyRef] > 0 ? colorRef : colorComp) : colorRef}
-                    strokeWidth={2}
-                    vectorEffect="non-scaling-stroke"
-                    transform={cursorTransform}
-                  />
-                  {dataKeyComp && y && (
-                    <circle
-                      className="cursor-dot"
-                      cy={y(activePoint[dataKeyComp!])}
-                      r={4}
-                      fill="#1a1c23"
-                      stroke={colorComp}
-                      strokeWidth={2}
-                      vectorEffect="non-scaling-stroke"
-                      transform={cursorTransform}
-                    />
-                  )}
+                <g clipPath={`url(#clip-${label})`}>
+                  <g className="cursor-group" transform={`translate(${marginLeft + cursorX}, 0)`}>
+                    <line y1={marginTop} y2={height - marginBottom} stroke="white" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
+                    <circle cy={y(activePoint[dataKeyRef])} r={4} fill="#1a1c23" stroke={isDelta ? (activePoint[dataKeyRef] > 0 ? colorRef : colorComp) : colorRef} strokeWidth={2} />
+                    {dataKeyComp && (
+                      <circle cy={y(activePoint[dataKeyComp])} r={4} fill="#1a1c23" stroke={colorComp} strokeWidth={2} />
+                    )}
+                  </g>
                 </g>
               )}
-            </g>
-          </g>
+            </>
+          )}
         </svg>
       </div>
     </div>

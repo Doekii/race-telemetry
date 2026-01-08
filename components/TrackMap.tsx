@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
 import * as d3 from 'd3';
 import { TelemetryPoint } from '@/types/api';
 
@@ -12,9 +12,10 @@ type ProjectedPoint = {
 };
 
 interface Geometry {
-  trackPath: string;
-  linePath: string;
-  centerPath: string;
+  leftEdgePoints: [number, number][];
+  rightEdgePoints: [number, number][];
+  drivenLinePoints: [number, number][];
+  centerPoints: [number, number][];
   projectedPoints: ProjectedPoint[];
   startPoint: ProjectedPoint | null;
   pixelsPerMeter: number;
@@ -41,8 +42,9 @@ export default function TrackMap({
 }: TrackMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [width, setWidth] = useState(0);
-  const [zoomTransform, setZoomTransform] = useState<d3.ZoomTransform | null>(null);
+  const [zoomTransform, setZoomTransform] = useState<d3.ZoomTransform>(d3.zoomIdentity);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -54,6 +56,7 @@ export default function TrackMap({
     return () => resizeObserver.disconnect();
   }, []);
 
+  // 1. Zoom Logic
   useEffect(() => {
     if (!svgRef.current || width === 0) return;
     const zoom = d3.zoom<SVGSVGElement, unknown>()
@@ -69,7 +72,7 @@ export default function TrackMap({
     return () => { selection.on(".zoom", null); };
   }, [width, height]);
 
-  // 1. Downsample Data
+  // 2. Downsample Data
   const downsampledData = useMemo(() => {
     if (targetPoints <= 0) return [];
     if (!data || data.length <= targetPoints) return data;
@@ -77,10 +80,10 @@ export default function TrackMap({
     return data.filter((_, i) => i % step === 0);
   }, [data, targetPoints]);
 
-  // 2. Heavy Calculation: Geometry (Static - No hoverDistance dependency)
+  // 3. Geometry (Calculation)
   const geometry = useMemo<Geometry>(() => {
     if (width === 0 || !downsampledData || downsampledData.length === 0) {
-      return { trackPath: '', linePath: '', centerPath: '', projectedPoints: [], startPoint: null, pixelsPerMeter: 0 };
+      return { leftEdgePoints: [], rightEdgePoints: [], drivenLinePoints: [], centerPoints: [], projectedPoints: [], startPoint: null, pixelsPerMeter: 0 };
     }
 
     const padding = 40;
@@ -88,7 +91,7 @@ export default function TrackMap({
     const latExtent = d3.extent(downsampledData, d => d.lat) as [number, number];
 
     if (longExtent[0] === undefined || latExtent[0] === undefined) {
-      return { trackPath: '', linePath: '', centerPath: '', projectedPoints: [], startPoint: null, pixelsPerMeter: 0 };
+      return { leftEdgePoints: [], rightEdgePoints: [], drivenLinePoints: [], centerPoints: [], projectedPoints: [], startPoint: null, pixelsPerMeter: 0 };
     }
 
     let longRange = longExtent[1] - longExtent[0];
@@ -144,6 +147,7 @@ export default function TrackMap({
     const leftEdgePoints: [number, number][] = [];
     const rightEdgePoints: [number, number][] = [];
     const drivenLinePoints: [number, number][] = [];
+    const centerPoints: [number, number][] = points.map(p => [p.x, p.y]);
 
     const add = (p: { x: number, y: number }, v: { x: number, y: number }, scale: number) =>
       [p.x + v.x * scale, p.y + v.y * scale] as [number, number];
@@ -166,39 +170,115 @@ export default function TrackMap({
       drivenLinePoints.push(add(p, { x: nx, y: ny }, offsetPx));
     }
 
-    const lineGen = d3.line().curve(d3.curveBasis);
-    const leftPath = lineGen(leftEdgePoints);
-    const rightPath = lineGen(rightEdgePoints.reverse());
-    const trackPath = (leftPath && rightPath) ? leftPath + "L" + rightPath.substring(1) + "Z" : '';
-    const linePath = lineGen(drivenLinePoints) || '';
-    const centerPath = lineGen(points.map(p => [p.x, p.y])) || '';
+    // Close the track loop visually if it's a loop?
+    // Not strictly necessary for line drawing, but nice.
+    // For now leaving as open lines.
 
-    return { trackPath, linePath, centerPath, projectedPoints: points, startPoint: points[0], pixelsPerMeter };
+    return { leftEdgePoints, rightEdgePoints, drivenLinePoints, centerPoints, projectedPoints: points, startPoint: points[0], pixelsPerMeter };
   }, [width, height, downsampledData]);
 
-  // 3. Lightweight Calculation: Active Marker (Dependent on hoverDistance)
-  // Using simple iteration for now as projectedPoints are already downsampled
-  // Could optimize with bisector if needed, but projectedPoints don't have linear 'dist' field easily accessible without mapping.
-  // Optimization: Pre-calculate distance array for binary search?
-  // For now, let's just make sure this runs fast.
+
+  // 4. Canvas Drawing
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !geometry.pixelsPerMeter) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // High DPI
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+
+    // Clear & Scale
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
+
+    // Apply Zoom Transform
+    const { x, y, k } = zoomTransform;
+    ctx.translate(x, y);
+    ctx.scale(k, k);
+
+    // Helpers
+    const lineGen = d3.line().curve(d3.curveBasis).context(ctx);
+
+    // Filter points visible in viewport? 
+    // Hard to filter non-linear generic shapes. 
+    // Canvas clipping handles it, but performance might suffer if we draw massive paths off-screen.
+    // But 2000 points is trivial.
+
+    // 1. Draw Track Edges (Gray Fill)
+    // To fill, we need a closed shape: Left Line -> Reverse Right Line -> Close
+    ctx.beginPath();
+    lineGen(geometry.leftEdgePoints);
+    // lineGen doesn't support "continue" typically for single array.
+    // We need to manually link the second array in reverse.
+    // Or just draw two lines and fill between? 
+    // Easier: Draw simple lines for edges.
+
+    // Actually, filling the track confirms the "Asphalt". 
+    // Let's create a custom path.
+    // Start at first left point.
+    // Line to last left point.
+    // Line to last right point.
+    // Line to first right point.
+    // Close.
+
+    // d3.line is for one array.
+    // Construct Combined Array: [...Left, ...Reverse(Right)]
+    const trackPoly = [...geometry.leftEdgePoints, ...[...geometry.rightEdgePoints].reverse(), geometry.leftEdgePoints[0]];
+
+    // Fill Track
+    ctx.beginPath();
+    d3.line().curve(d3.curveBasisClosed).context(ctx)(trackPoly); // curveBasisClosed creates smooth loop
+    // But ends might not match well if not a loop.
+    // Use curveBasis for open track?
+    // Let's just Stroke Edges for now to replicate original "trackPath".
+    // Original: trackPath = left + "L" + right(rev) + "Z". 
+    // Yes, it was filled.
+    ctx.fillStyle = "#2a2d36";
+    ctx.fill();
+    ctx.strokeStyle = "#4b5563";
+    ctx.lineWidth = 1 / k;
+    ctx.stroke();
+
+    // 2. Draw Center Line
+    ctx.beginPath();
+    lineGen(geometry.centerPoints);
+    ctx.strokeStyle = "rgba(255,255,255,0.1)";
+    ctx.lineWidth = 1 / k;
+    ctx.setLineDash([4 / k, 4 / k]); // Scale dash
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 3. Draw Driven Line
+    ctx.beginPath();
+    lineGen(geometry.drivenLinePoints);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2 / k;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = 5;
+    ctx.stroke();
+    // Reset shadow
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+
+  }, [width, height, geometry, zoomTransform, color]);
+
+
+  // 5. Interaction (Active Marker)
   const activeMarker = useMemo<ProjectedPoint | null>(() => {
     if (hoverDistance === null || hoverDistance === undefined || !geometry.projectedPoints.length) return null;
-
-    // Quick find
-    // Since points are sorted by lap distance roughly? Yes.
-    // Let's iterate. 
-    // Optimization: geometry.projectedPoints is roughly 2000 points. Iteration is fine (0.1ms).
-    // The issue before was calculating GEOMETRY on every hover. Now we don't.
-
     let closest = geometry.projectedPoints[0];
     let minDiff = Math.abs(closest.data.distance - hoverDistance);
 
-    // Binary search optimization if data is sorted by distance (it is)
-    // d3.bisector works on the array
     const bisector = d3.bisector((p: ProjectedPoint) => p.data.distance).left;
     const idx = bisector(geometry.projectedPoints, hoverDistance);
 
-    // Check idx and idx-1
     if (idx < geometry.projectedPoints.length) {
       const p1 = geometry.projectedPoints[idx];
       const diff1 = Math.abs(p1.data.distance - hoverDistance);
@@ -209,7 +289,6 @@ export default function TrackMap({
       const diff0 = Math.abs(p0.data.distance - hoverDistance);
       if (diff0 < minDiff) { closest = p0; }
     }
-
     return closest;
   }, [hoverDistance, geometry.projectedPoints]);
 
@@ -224,10 +303,6 @@ export default function TrackMap({
       mouseY = (mouseY - zoomTransform.y) / zoomTransform.k;
     }
 
-    // Spatial search for mouse interaction (hovering ON map)
-    // Finding closest point visually
-    // Optimization: Just check every 5th point? Or use Quadtree?
-    // For 2000 points, O(N) is fine (~0.2ms).
     let closest = null;
     let minDSq = Infinity;
 
@@ -243,10 +318,8 @@ export default function TrackMap({
     }
   };
 
-  const handleMouseLeave = () => { if (onHover) onHover(null); };
-
-  const k = zoomTransform?.k || 1;
-
+  // Marker Coords for SVG Overlay (crisp)
+  const k = zoomTransform.k;
   const markerCoords = useMemo(() => {
     if (!activeMarker || !geometry.projectedPoints.length) return null;
     const index = geometry.projectedPoints.indexOf(activeMarker as ProjectedPoint);
@@ -271,24 +344,35 @@ export default function TrackMap({
   }, [activeMarker, geometry, k]);
 
   return (
-    <div ref={containerRef} className={`w-full relative ${className}`} style={{ height }} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
-      {width > 0 && geometry.trackPath ? (
-        <svg ref={svgRef} width={width} height={height} className="overflow-hidden cursor-crosshair touch-none">
-          <g transform={zoomTransform ? zoomTransform.toString() : ""}>
-            <path d={geometry.trackPath} fill="#2a2d36" stroke="#4b5563" strokeWidth={1 / k} vectorEffect="non-scaling-stroke" />
-            <path d={geometry.centerPath} fill="none" stroke="white" strokeOpacity={0.1} strokeWidth={1 / k} vectorEffect="non-scaling-stroke" strokeDasharray="4 4" />
-            <path d={geometry.linePath} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" className="drop-shadow-lg" />
+    <div ref={containerRef} className={`w-full relative ${className}`} style={{ height }} onMouseMove={handleMouseMove} onMouseLeave={() => onHover && onHover(null)}>
+      {/* CANVAS */}
+      <canvas ref={canvasRef} className="absolute top-0 left-0 pointer-events-none" />
+
+      {/* SVG Overlay */}
+      {width > 0 && (
+        <svg ref={svgRef} width={width} height={height} className="absolute top-0 left-0 overflow-hidden cursor-crosshair touch-none">
+          <g transform={zoomTransform.toString()}>
             {geometry.startPoint && (
               <circle cx={geometry.startPoint.x} cy={geometry.startPoint.y} r={4 / k} fill="white" className="opacity-80" />
             )}
             {markerCoords && (
-              <line x1={markerCoords.x1} y1={markerCoords.y1} x2={markerCoords.x2} y2={markerCoords.y2} stroke="red" strokeWidth={3 / k} strokeLinecap="round" className="drop-shadow-md" />
+              <line
+                x1={markerCoords.x1}
+                y1={markerCoords.y1}
+                x2={markerCoords.x2}
+                y2={markerCoords.y2}
+                stroke="red"
+                strokeWidth={3 / k}
+                strokeLinecap="round"
+                className="drop-shadow-md"
+              />
             )}
           </g>
         </svg>
-      ) : (
-        <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">
-          {!data || data.length === 0 ? "No Track Data" : "Calculating Geometry..."}
+      )}
+      {!data || data.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm pointer-events-none">
+          No Track Data
         </div>
       )}
       <div className="absolute bottom-2 right-2 text-[10px] text-gray-500 bg-black/50 px-2 py-1 rounded pointer-events-none select-none">
