@@ -19,7 +19,7 @@ export const getLaps = async (filename: string): Promise<LapItem[]> => {
 };
 
 export const getLapTelemetry = async (filename: string, lapNumber: number): Promise<TelemetryPoint[]> => {
-  // ... existing implementation ...
+  // Added requested channels: Steering Pos, Fuel Level, Virtual Energy, TC, ABS, etc.
   const channels = [
     "Ground Speed",
     "Throttle Pos",
@@ -31,7 +31,12 @@ export const getLapTelemetry = async (filename: string, lapNumber: number): Prom
     "Lap Dist",
     "Track Edge",
     "G Force Lat",
-    "G Force Long"
+    "G Force Long",
+    "Steering Pos",
+    "Fuel Level",
+    "Virtual Energy",
+    "TC",
+    "ABS"
   ].join(",");
 
   const response = await apiClient.get<any>(
@@ -67,7 +72,13 @@ export const getLapTelemetry = async (filename: string, lapNumber: number): Prom
       long: point["GPS Longitude"] || 0,
       trackEdge: Number(trackEdgeVal),
       gLat: point["G Force Lat"] || 0,
-      gLong: point["G Force Long"] || 0
+      gLong: point["G Force Long"] || 0,
+      // New fields mapping (add to TelemetryPoint interface if type safety needed later)
+      steering: point["Steering Pos"] || 0,
+      fuel: point["Fuel Level"] || 0,
+      energy: point["Virtual Energy"] || 0,
+      tc: point["TC"] ? 1 : 0, // Boolean to number for charting
+      abs: point["ABS"] ? 1 : 0
     };
   });
 };
@@ -85,7 +96,12 @@ export const getLapComparison = async (
     'Gear',
     'G Force Lat',
     'G Force Long',
-    'Tyres Wear'
+    'Tyres Wear',
+    'Steering Pos',
+    'Fuel Level',
+    'Virtual Energy',
+    'TC',
+    'ABS'
   ]
 ): Promise<DeltaPoint[]> => {
   const params = {
@@ -115,14 +131,13 @@ export const getLapComparison = async (
       time_delta: d['Time_Delta']
     };
 
-    // Improved Mapping: Don't destroy arrays
     Object.keys(d).forEach(key => {
       if (key !== 'Lap Dist' && key !== 'Time_Delta') {
         const val = d[key];
-        // If array or object, keep it. If primitive, cast to number safely.
         if (typeof val === 'object' && val !== null) {
-          point[key] = val; // Keep array/object structure (e.g. [99, 99, 98, 98])
+          point[key] = val;
         } else {
+          // Special handling for boolean fields like TC/ABS coming as numbers or booleans
           const num = Number(val);
           point[key] = isNaN(num) ? 0 : num;
         }

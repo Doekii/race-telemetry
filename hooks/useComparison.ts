@@ -11,7 +11,6 @@ interface UseComparisonProps {
 
 export function useComparison({ refSession, refLap, compSession, compLap }: UseComparisonProps) {
 
-  // 1. Fetch Reference Lap Telemetry (for Map Geometry)
   const { data: refTelemetry, isLoading: isLoadingRef } = useQuery<TelemetryPoint[]>({
     queryKey: ['telemetry', refSession, refLap],
     queryFn: () => getLapTelemetry(refSession!, refLap!),
@@ -19,7 +18,6 @@ export function useComparison({ refSession, refLap, compSession, compLap }: UseC
     staleTime: 1000 * 60 * 5,
   });
 
-  // 2. Fetch Comparison Data (Delta & Channels)
   const channelsToCompare = [
     'Ground Speed',
     'Throttle Pos',
@@ -28,7 +26,12 @@ export function useComparison({ refSession, refLap, compSession, compLap }: UseC
     'Gear',
     'G Force Lat',
     'G Force Long',
-    'Tyres Wear' // This triggers fetching the 4-column table
+    'Tyres Wear',
+    'Steering Pos',
+    'Fuel Level',
+    'Virtual Energy',
+    'TC',
+    'ABS'
   ];
 
   const { data: comparisonData, isLoading: isLoadingComp } = useQuery<DeltaPoint[]>({
