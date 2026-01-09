@@ -127,20 +127,16 @@ export const getLapComparison = async (
 
   return rawData.map((d: any) => {
     const point: DeltaPoint = {
-      dist: d['Lap Dist'],
-      time_delta: d['Time_Delta']
+      dist: Number(d['Lap Dist']),
+      time_delta: Number(d['Time_Delta'])
     };
 
     Object.keys(d).forEach(key => {
       if (key !== 'Lap Dist' && key !== 'Time_Delta') {
         const val = d[key];
-        if (typeof val === 'object' && val !== null) {
-          point[key] = val;
-        } else {
-          // Special handling for boolean fields like TC/ABS coming as numbers or booleans
-          const num = Number(val);
-          point[key] = isNaN(num) ? 0 : num;
-        }
+        const num = Number(val);
+        // Map everything to numbers, defaulting to 0 if NaN (except if it was explicitly null, but for chart safety 0 is safer)
+        point[key] = isNaN(num) ? 0 : num;
       }
     });
 

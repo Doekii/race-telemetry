@@ -17,7 +17,6 @@ interface DeltaLineChartProps {
   hoverDistance: number | null;
   onHover: (distance: number | null) => void;
   isDelta?: boolean;
-  targetPoints?: number;
   zoomSync?: ZoomSynchronizer;
   xDomain?: [number, number];
 }
@@ -34,7 +33,6 @@ export default function DeltaLineChart({
   hoverDistance,
   onHover,
   isDelta = false,
-  targetPoints = 4000,
   zoomSync,
   xDomain: globalXDomain
 }: DeltaLineChartProps) {
@@ -161,7 +159,7 @@ export default function DeltaLineChart({
       endIndex = Math.min(data.length, endIndex + 2);
 
       const visibleCount = endIndex - startIndex;
-      const stride = Math.ceil(visibleCount / 4000);
+
 
       // Prepare Gradient if Delta
       let strokeStyle: string | CanvasGradient = colorRef;
@@ -179,33 +177,99 @@ export default function DeltaLineChart({
       ctx.rect(marginLeft, marginTop, plotWidth, plotHeight);
       ctx.clip();
 
-      const drawPath = (key: string, dash: boolean) => {
+      // Zero Line (IsDelta)
+      if (isDelta) {
+        const yZero = y(0);
         ctx.beginPath();
-        if (visibleCount > 0) {
-          const d0 = data[startIndex];
-          const v0 = Number(d0[key]);
-          if (!isNaN(v0)) {
-            ctx.moveTo(newXScale(getDist(d0)) + marginLeft, y(v0));
-          }
+        ctx.moveTo(marginLeft, yZero);
+        ctx.lineTo(width - marginRight, yZero);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
 
-          for (let i = startIndex + stride; i < endIndex; i += stride) {
-            const d = data[i];
-            const v = Number(d[key]);
-            if (!isNaN(v)) {
-              ctx.lineTo(newXScale(getDist(d)) + marginLeft, y(v));
+      const traceMinMax = (key: string, isFill: boolean) => {
+        if (visibleCount <= 0) return;
+
+        const yZero = y(0);
+        let currentPixel = -1;
+        let minY = Infinity;
+        let maxY = -Infinity;
+        let firstPoint = true;
+
+        let startPixel = 0;
+        let startY = 0;
+
+        const emitBucket = (px: number, mn: number, mx: number) => {
+          const xPos = px + marginLeft;
+          if (firstPoint) {
+            if (isFill) {
+              ctx.moveTo(xPos, yZero);
+              ctx.lineTo(xPos, mn);
+            } else {
+              ctx.moveTo(xPos, mn);
             }
+            ctx.lineTo(xPos, mx);
+            firstPoint = false;
+            startPixel = px;
+            startY = mn;
+          } else {
+            ctx.lineTo(xPos, mn);
+            ctx.lineTo(xPos, mx);
           }
-          if (stride > 1 && endIndex > startIndex) {
-            const dLast = data[endIndex - 1];
-            const vLast = Number(dLast[key]);
-            if (!isNaN(vLast)) {
-              ctx.lineTo(newXScale(getDist(dLast)) + marginLeft, y(vLast));
+        };
+
+        for (let i = startIndex; i < endIndex; i++) {
+          const d = data[i];
+          const val = Number(d[key]);
+          if (isNaN(val)) continue;
+
+          const xVal = newXScale(getDist(d));
+          const px = Math.floor(xVal);
+          const yVal = y(val);
+
+          if (px !== currentPixel) {
+            if (currentPixel !== -1 && minY !== Infinity) {
+              emitBucket(currentPixel, minY, maxY);
             }
+            currentPixel = px;
+            minY = yVal;
+            maxY = yVal;
+          } else {
+            minY = Math.min(minY, yVal);
+            maxY = Math.max(maxY, yVal);
           }
         }
+        if (currentPixel !== -1 && minY !== Infinity) {
+          emitBucket(currentPixel, minY, maxY);
+        }
+
+        if (isFill && !firstPoint) {
+          const finalX = currentPixel + marginLeft;
+          ctx.lineTo(finalX, yZero);
+          const initialX = startPixel + marginLeft;
+          ctx.lineTo(initialX, yZero);
+          ctx.closePath();
+        }
+      };
+
+      const drawPath = (key: string, dash: boolean) => {
+        // Area Fill (only for main line when isDelta is true)
+        if (isDelta && !dash && visibleCount > 0) {
+          ctx.beginPath();
+          traceMinMax(key, true);
+          ctx.fillStyle = strokeStyle;
+          ctx.globalAlpha = 0.2;
+          ctx.fill();
+          ctx.globalAlpha = 1.0;
+        }
+
+        // Main Stroke
+        ctx.beginPath();
+        traceMinMax(key, false);
 
         ctx.strokeStyle = dash ? colorComp : strokeStyle;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1.5;
         ctx.lineJoin = 'round';
         if (dash) ctx.setLineDash([4, 2]);
         ctx.stroke();

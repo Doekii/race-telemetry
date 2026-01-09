@@ -6,13 +6,12 @@ interface CompareSessionManifestProps {
     compSession: string | null;
     compLap: number | null;
     dataPoints: number;
-    resolution: number;
 }
 
 export default function CompareSessionManifest({
     refColor, refSession, refLap,
     compColor, compSession, compLap,
-    dataPoints, resolution
+    dataPoints
 }: CompareSessionManifestProps) {
     return (
         <div className="bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 rounded-xl p-6 relative overflow-hidden group shadow-lg">
@@ -42,10 +41,6 @@ export default function CompareSessionManifest({
                 <div>
                     <div className="text-[10px] uppercase text-gray-500 font-bold mb-1">Data Points</div>
                     <div className="text-xl text-gray-300 font-mono font-bold">{dataPoints.toLocaleString()}</div>
-                </div>
-                <div>
-                    <div className="text-[10px] uppercase text-gray-500 font-bold mb-1">Sample Rate</div>
-                    <div className="text-xl text-telemetry-blue font-mono font-bold">{resolution}</div>
                 </div>
             </div>
         </div>

@@ -6,8 +6,6 @@ interface CompareChartsProps {
     comparisonData: any[];
     hoverDistance: number | null;
     setHoverDistance: (d: number | null) => void;
-    resolution: number;
-    isFullRes?: boolean;
     refColor: string;
     compColor: string;
     zoomSync: ZoomSynchronizer;
@@ -15,13 +13,11 @@ interface CompareChartsProps {
 }
 
 export default function CompareCharts({
-    comparisonData, hoverDistance, setHoverDistance, resolution, isFullRes = false,
+    comparisonData, hoverDistance, setHoverDistance,
     refColor, compColor, zoomSync, xDomain
 }: CompareChartsProps) {
     const tyreChannelRef = 'Tyres Wear_Ref';
     const tyreChannelComp = 'Tyres Wear_Comp';
-
-    const targetPoints = isFullRes ? 1000000 : resolution;
 
     return (
         <div className="lg:col-span-2 space-y-6">
@@ -31,7 +27,7 @@ export default function CompareCharts({
                 <DeltaLineChart
                     data={comparisonData} dataKeyRef="time_delta" label="Time Delta" unit="s"
                     height={220} hoverDistance={hoverDistance} onHover={setHoverDistance} isDelta={true}
-                    targetPoints={targetPoints} colorRef={refColor} colorComp={compColor}
+                    colorRef={refColor} colorComp={compColor}
                     zoomSync={zoomSync} xDomain={xDomain}
                 />
             </div>
@@ -40,7 +36,7 @@ export default function CompareCharts({
                 <DeltaLineChart
                     data={comparisonData} dataKeyRef="Ground Speed_Ref" dataKeyComp="Ground Speed_Comp" label="Speed" unit="km/h"
                     height={200} hoverDistance={hoverDistance} onHover={setHoverDistance}
-                    targetPoints={targetPoints} colorRef={refColor} colorComp={compColor}
+                    colorRef={refColor} colorComp={compColor}
                     zoomSync={zoomSync} xDomain={xDomain}
                 />
             </div>
@@ -51,7 +47,7 @@ export default function CompareCharts({
                     <DeltaLineChart
                         data={comparisonData} dataKeyRef="Throttle Pos_Ref" dataKeyComp="Throttle Pos_Comp" label="Throttle" unit="%"
                         height={120} hoverDistance={hoverDistance} onHover={setHoverDistance}
-                        targetPoints={targetPoints} colorRef={refColor} colorComp={compColor}
+                        colorRef={refColor} colorComp={compColor}
                         zoomSync={zoomSync} xDomain={xDomain}
                     />
                 </div>
@@ -59,7 +55,7 @@ export default function CompareCharts({
                     <DeltaLineChart
                         data={comparisonData} dataKeyRef="Brake Pos_Ref" dataKeyComp="Brake Pos_Comp" label="Brake" unit="%"
                         height={120} hoverDistance={hoverDistance} onHover={setHoverDistance}
-                        targetPoints={targetPoints} colorRef={refColor} colorComp={compColor}
+                        colorRef={refColor} colorComp={compColor}
                         zoomSync={zoomSync} xDomain={xDomain}
                     />
                 </div>
@@ -67,7 +63,7 @@ export default function CompareCharts({
                     <DeltaLineChart
                         data={comparisonData} dataKeyRef="Steering Pos_Ref" dataKeyComp="Steering Pos_Comp" label="Steering" unit="rad"
                         height={150} hoverDistance={hoverDistance} onHover={setHoverDistance}
-                        targetPoints={targetPoints} colorRef={refColor} colorComp={compColor}
+                        colorRef={refColor} colorComp={compColor}
                         zoomSync={zoomSync} xDomain={xDomain}
                     />
                 </div>
@@ -84,7 +80,7 @@ export default function CompareCharts({
                         <DeltaLineChart
                             data={comparisonData} dataKeyRef={chart.keyRef} dataKeyComp={chart.keyComp} label={chart.label} unit={chart.unit}
                             height={100} hoverDistance={hoverDistance} onHover={setHoverDistance}
-                            targetPoints={targetPoints} colorRef={refColor} colorComp={compColor}
+                            colorRef={refColor} colorComp={compColor}
                             zoomSync={zoomSync} xDomain={xDomain}
                         />
                     </div>
@@ -96,7 +92,7 @@ export default function CompareCharts({
                     <DeltaLineChart
                         data={comparisonData} dataKeyRef="TC_Ref" dataKeyComp="TC_Comp" label="TC Active" unit="bool"
                         height={80} hoverDistance={hoverDistance} onHover={setHoverDistance}
-                        targetPoints={targetPoints} colorRef={refColor} colorComp={compColor}
+                        colorRef={refColor} colorComp={compColor}
                         zoomSync={zoomSync} xDomain={xDomain}
                     />
                 </div>
@@ -104,7 +100,7 @@ export default function CompareCharts({
                     <DeltaLineChart
                         data={comparisonData} dataKeyRef="ABS_Ref" dataKeyComp="ABS_Comp" label="ABS Active" unit="bool"
                         height={80} hoverDistance={hoverDistance} onHover={setHoverDistance}
-                        targetPoints={targetPoints} colorRef={refColor} colorComp={compColor}
+                        colorRef={refColor} colorComp={compColor}
                         zoomSync={zoomSync} xDomain={xDomain}
                     />
                 </div>

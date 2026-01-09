@@ -23,8 +23,6 @@ export default function ComparePage() {
   const [compColor, setCompColor] = useState<string>("#f43f5e");
 
   const [hoverDistance, setHoverDistance] = useState<number | null>(null);
-  const [resolution, setResolution] = useState<number>(4000);
-  const [isFullRes, setIsFullRes] = useState<boolean>(false);
 
   const { data: sessionData, isLoading: sessionsLoading, isError: sessionsError } = useSessions();
   const { data: refLapData, isLoading: refLapsLoading } = useLaps(refSession);
@@ -54,8 +52,6 @@ export default function ComparePage() {
       <header className="mb-8 space-y-6">
         <CompareHeader
           zoomSync={zoomSync}
-          resolution={resolution} setResolution={setResolution}
-          isFullRes={isFullRes} setIsFullRes={setIsFullRes}
         />
 
         {/* Selection Cards */}
@@ -100,8 +96,7 @@ export default function ComparePage() {
               comparisonData={comparisonData}
               hoverDistance={hoverDistance}
               setHoverDistance={setHoverDistance}
-              resolution={resolution}
-              isFullRes={isFullRes}
+              setHoverDistance={setHoverDistance}
               refColor={refColor}
               compColor={compColor}
               zoomSync={zoomSync}
@@ -113,12 +108,12 @@ export default function ComparePage() {
               <CompareSessionManifest
                 refColor={refColor} refSession={refSession} refLap={refLap}
                 compColor={compColor} compSession={compSession} compLap={compLap}
-                dataPoints={comparisonData.length} resolution={resolution}
+                dataPoints={comparisonData.length}
               />
 
               <div className="bg-race-panel border border-gray-800 rounded-xl p-4 relative min-h-[400px] sticky top-4 shadow-lg">
                 <TrackMap
-                  data={refTelemetry || []} height={400} color="#ffffff" hoverDistance={hoverDistance} targetPoints={resolution}
+                  data={refTelemetry || []} height={400} color="#ffffff" hoverDistance={hoverDistance}
                   onHover={(point) => setHoverDistance(point ? point.distance : null)}
                 />
               </div>

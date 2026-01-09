@@ -28,7 +28,6 @@ interface TrackMapProps {
   className?: string;
   onHover?: (point: TelemetryPoint | null) => void;
   hoverDistance?: number | null;
-  targetPoints?: number;
 }
 
 export default function TrackMap({
@@ -38,7 +37,6 @@ export default function TrackMap({
   className,
   onHover,
   hoverDistance,
-  targetPoints = 4000
 }: TrackMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -72,23 +70,16 @@ export default function TrackMap({
     return () => { selection.on(".zoom", null); };
   }, [width, height]);
 
-  // 2. Downsample Data
-  const downsampledData = useMemo(() => {
-    if (targetPoints <= 0) return [];
-    if (!data || data.length <= targetPoints) return data;
-    const step = Math.ceil(data.length / targetPoints);
-    return data.filter((_, i) => i % step === 0);
-  }, [data, targetPoints]);
 
   // 3. Geometry (Calculation)
   const geometry = useMemo<Geometry>(() => {
-    if (width === 0 || !downsampledData || downsampledData.length === 0) {
+    if (width === 0 || !data || data.length === 0) {
       return { leftEdgePoints: [], rightEdgePoints: [], drivenLinePoints: [], centerPoints: [], projectedPoints: [], startPoint: null, pixelsPerMeter: 0 };
     }
 
     const padding = 40;
-    const longExtent = d3.extent(downsampledData, d => d.long) as [number, number];
-    const latExtent = d3.extent(downsampledData, d => d.lat) as [number, number];
+    const longExtent = d3.extent(data, d => d.long) as [number, number];
+    const latExtent = d3.extent(data, d => d.lat) as [number, number];
 
     if (longExtent[0] === undefined || latExtent[0] === undefined) {
       return { leftEdgePoints: [], rightEdgePoints: [], drivenLinePoints: [], centerPoints: [], projectedPoints: [], startPoint: null, pixelsPerMeter: 0 };
@@ -119,7 +110,7 @@ export default function TrackMap({
       yScale = d3.scaleLinear().domain(latExtent).range([height - padding, padding]);
     }
 
-    const rawPoints = downsampledData.map(d => ({
+    const rawPoints = data.map(d => ({
       x: xScale(d.long),
       y: yScale(d.lat),
       data: d,
@@ -136,7 +127,7 @@ export default function TrackMap({
       }
     }
 
-    const maxOffsetFound = d3.max(downsampledData, d => Math.abs(d.trackEdge || 0)) || 10;
+    const maxOffsetFound = d3.max(data, d => Math.abs(d.trackEdge || 0)) || 10;
     const TRACK_HALF_WIDTH_METERS = Math.max(10, maxOffsetFound * 1.1);
 
     const widthInMeters = longRange * 111139 * aspectCorrection;
@@ -175,7 +166,7 @@ export default function TrackMap({
     // For now leaving as open lines.
 
     return { leftEdgePoints, rightEdgePoints, drivenLinePoints, centerPoints, projectedPoints: points, startPoint: points[0], pixelsPerMeter };
-  }, [width, height, downsampledData]);
+  }, [width, height, data]);
 
 
   // 4. Canvas Drawing
